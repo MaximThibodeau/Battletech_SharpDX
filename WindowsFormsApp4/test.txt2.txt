@@ -1,0 +1,304 @@
+using SharpDX;<BR>
+using SharpDX.Direct3D;<BR>
+using SharpDX.Direct3D11;<BR>
+using SharpDX.DirectInput;<BR>
+using SharpDX.DXGI;<BR>
+using SharpDX.Windows;<BR>
+using System;<BR>
+using System.Threading;<BR>
+using System.Windows.Forms;<BR>
+using System.Diagnostics;<BR>
+using SharpDX.XAudio2;<BR>
+<BR>
+namespace WindowsFormsApp4<BR>
+{<BR>
+    public class FirstPersonShooter<BR>
+    {<BR>
+        StaticObject O;<BR>
+<BR>
+        Matrix view;<BR>
+        Matrix proj;<BR>
+<BR>
+        Shooter Master;<BR>
+<BR>
+        SwapChainDescription desc;<BR>
+        SwapChain swapChain;<BR>
+        SharpDX.Direct3D11.Device device;<BR>
+        SharpDX.Direct3D11.DeviceContext context;<BR>
+<BR>
+        Thread T;<BR>
+<BR>
+        int ScreenWidth = 0;<BR>
+        int ScreenHeight = 0;<BR>
+<BR>
+        //***************<BR>
+        private int lastTick;<BR>
+        private int lastFrameRate;<BR>
+        private int frameRate;<BR>
+<BR>
+        private int FPS = 0;<BR>
+<BR>
+        private long Frame_Time = 0;<BR>
+<BR>
+        Stopwatch stopwatch = new Stopwatch();<BR>
+        //*****************<BR>
+<BR>
+        bool m_W = false;<BR>
+        bool m_S = false;<BR>
+        bool m_Q = false;<BR>
+        bool m_E = false;<BR>
+        bool m_A = false;<BR>
+        bool m_D = false;<BR>
+        bool m_Z = false;<BR>
+        bool m_X = false;<BR>
+        bool m_Space = false;<BR>
+        bool Cntrl_Is_Down = false;<BR>
+<BR>
+        FPScamera Cam;<BR>
+<BR>
+        Vector3 Camera_Position;<BR>
+<BR>
+        Keyboard keyboard;<BR>
+        Mouse mouse;<BR>
+        DirectInput DI = new DirectInput();<BR>
+<BR>
+        <BR>
+<BR>
+        public int Mouse_X = 0;<BR>
+        public int Mouse_Y = 0;<BR>
+        public Vector2 Mouse_Previous = new Vector2(0, 0);<BR>
+<BR>
+        <BR>
+        public int ClientNbr = -1;<BR>
+<BR>
+        <BR>
+        //***************<BR>
+<BR>
+        public FirstPersonShooter(Shooter master)<BR>
+        {<BR>
+<BR>
+            Master = master;<BR>
+            ScreenWidth = Master.ClientSize.Width;<BR>
+            ScreenHeight = Master.ClientSize.Height;// - Master.statusStrip1.Height;<BR>
+            <BR>
+<BR>
+            desc = new SwapChainDescription()<BR>
+            {<BR>
+                BufferCount = 1,<BR>
+                ModeDescription =<BR>
+                    new ModeDescription(ScreenWidth, ScreenHeight,<BR>
+                                        new Rational(60, 1), Format.R8G8B8A8_UNorm),<BR>
+                IsWindowed = true,<BR>
+                OutputHandle = master.Handle,<BR>
+                SampleDescription = new SampleDescription(1, 0),<BR>
+                SwapEffect = SwapEffect.Discard,<BR>
+                Usage = Usage.RenderTargetOutput<BR>
+            };<BR>
+<BR>
+            SharpDX.Direct3D11.Device.CreateWithSwapChain(DriverType.Hardware, DeviceCreationFlags.BgraSupport, new[] { SharpDX.Direct3D.FeatureLevel.Level_11_0 }, desc, out device, out swapChain);<BR>
+            context = device.ImmediateContext;<BR>
+            <BR>
+            keyboard = new Keyboard(DI);<BR>
+            mouse = new Mouse(DI);<BR>
+<BR>
+            Cam = new FPScamera(Master.ClientSize.Width, Master.ClientSize.Height);<BR>
+<BR>
+            // Acquire the joystick<BR>
+            keyboard.Properties.BufferSize = 128;<BR>
+            keyboard.Acquire();<BR>
+<BR>
+            mouse.Acquire();<BR>
+                        <BR>
+            O = new StaticObject("tutorial_0.blend.txt", device, context);<BR>
+<BR>
+            {<BR>
+                T = new Thread(WorkThreadFunction);<BR>
+                T.Start();<BR>
+            }//);<BR>
+<BR>
+            //WorkThreadFunction();<BR>
+        }<BR>
+<BR>
+<BR>
+        public void WorkThreadFunction()<BR>
+        {<BR>
+<BR>
+            // Prepare matrices<BR>
+            view = Matrix.LookAtLH(new Vector3(0, 0, -40.0f), new Vector3(0, 0, 0), Vector3.UnitY);<BR>
+            proj = Matrix.Identity;<BR>
+                        <BR>
+            Texture2D backBuffer = null;<BR>
+            RenderTargetView renderView = null;<BR>
+            Texture2D depthBuffer = null;<BR>
+            DepthStencilView depthView = null;<BR>
+<BR>
+            float rotation = 0.0f;<BR>
+            int T = 0;<BR>
+<BR>
+            Master.Invoke(new Action(() =><BR>
+<BR>
+            RenderLoop.Run(Master, () =><BR>
+            {<BR>
+<BR>
+                // If Form resized<BR>
+                if (Master.ResizeForm1)<BR>
+                {<BR>
+                    Random R = new Random(DateTime.Now.Millisecond);<BR>
+<BR>
+                    T = R.Next(3);<BR>
+<BR>
+                    // Dispose all previous allocated resources<BR>
+                    Utilities.Dispose(ref backBuffer);<BR>
+                    Utilities.Dispose(ref renderView);<BR>
+                    Utilities.Dispose(ref depthBuffer);<BR>
+                    Utilities.Dispose(ref depthView);<BR>
+<BR>
+                    ScreenWidth = Master.ClientSize.Width;<BR>
+                    ScreenHeight = Master.ClientSize.Height;<BR>
+<BR>
+                    // Resize the backbuffer<BR>
+                    swapChain.ResizeBuffers(desc.BufferCount, ScreenWidth, ScreenHeight, Format.Unknown, SwapChainFlags.None);<BR>
+<BR>
+                    // Get the backbuffer from the swapchain<BR>
+                    backBuffer = Texture2D.FromSwapChain<Texture2D>(swapChain, 0);<BR>
+<BR>
+                    // Renderview on the backbuffer<BR>
+                    renderView = new RenderTargetView(device, backBuffer);<BR>
+<BR>
+                    // Create the depth buffer<BR>
+                    depthBuffer = new Texture2D(device, new Texture2DDescription()<BR>
+                    {<BR>
+                        Format = Format.D32_Float_S8X24_UInt,<BR>
+                        ArraySize = 1,<BR>
+                        MipLevels = 1,<BR>
+                        Width = ScreenWidth,<BR>
+                        Height = ScreenHeight,<BR>
+                        SampleDescription = new SampleDescription(1, 0),<BR>
+                        Usage = ResourceUsage.Default,<BR>
+                        BindFlags = BindFlags.DepthStencil,<BR>
+                        CpuAccessFlags = CpuAccessFlags.None,<BR>
+                        OptionFlags = ResourceOptionFlags.None<BR>
+                    });<BR>
+<BR>
+                    // Create the depth buffer view<BR>
+                    depthView = new DepthStencilView(device, depthBuffer);<BR>
+<BR>
+                    // Setup targets and viewport for rendering<BR>
+                    context.Rasterizer.SetViewport(new Viewport(0, 0, ScreenWidth, ScreenHeight, 0.0f, 1.0f));<BR>
+                    context.OutputMerger.SetTargets(depthView, renderView);<BR>
+<BR>
+                    // Setup new projection matrix with correct aspect ratio<BR>
+                    proj = Matrix.PerspectiveFovLH((float)Math.PI / 4.0f, ScreenWidth / (float)ScreenHeight, 0.1f, 1000.0f);<BR>
+<BR>
+                    // We are done resizing<BR>
+                    Master.ResizeForm1 = false;<BR>
+                }<BR>
+<BR>
+                SharpDX.Color C;<BR>
+<BR>
+                <BR>
+                if (T == 0) C = SharpDX.Color.Red;<BR>
+                else if(T == 1) C = SharpDX.Color.Gray;<BR>
+                else if (T == 2) C = SharpDX.Color.Black;<BR>
+                else C = SharpDX.Color.SpringGreen;<BR>
+<BR>
+                // Clear views<BR>
+                context.ClearDepthStencilView(depthView, DepthStencilClearFlags.Depth, 1.0f, 0);<BR>
+                context.ClearRenderTargetView(renderView, C);<BR>
+<BR>
+                keyboard.Poll();<BR>
+                var datas = keyboard.GetBufferedData();<BR>
+                foreach (var state in datas)<BR>
+                {<BR>
+                    if (state.IsPressed == true)<BR>
+                    {<BR>
+<BR>
+                        if (state.Key == Key.W)<BR>
+                        {<BR>
+                            //MessageBox.Show("allo");<BR>
+                            m_W = true;<BR>
+                        }<BR>
+                        if (state.Key == Key.S)<BR>
+                            m_S = true;<BR>
+                        if (state.Key == Key.Q)<BR>
+                            m_Q = true;<BR>
+                        if (state.Key == Key.E)<BR>
+                            m_E = true;<BR>
+                        if (state.Key == Key.A)<BR>
+                            m_A = true;<BR>
+                        if (state.Key == Key.D)<BR>
+                            m_D = true;<BR>
+                        if (state.Key == Key.Z)<BR>
+                            m_Z = true;<BR>
+                        if (state.Key == Key.X)<BR>
+                            m_X = true;<BR>
+                        if (state.Key == Key.Space)<BR>
+                            m_Space = true;<BR>
+                        if (state.Key == Key.LeftControl)<BR>
+                        {<BR>
+                            Cntrl_Is_Down = true;<BR>
+                            //Master.Close();<BR>
+                        }<BR>
+                    }<BR>
+                    if (state.IsReleased == true)<BR>
+                    {<BR>
+                        if (state.Key == Key.W)<BR>
+                            m_W = false;<BR>
+                        if (state.Key == Key.S)<BR>
+                            m_S = false;<BR>
+                        if (state.Key == Key.Q)<BR>
+                            m_Q = false;<BR>
+                        if (state.Key == Key.E)<BR>
+                            m_E = false;<BR>
+                        if (state.Key == Key.A)<BR>
+                            m_A = false;<BR>
+                        if (state.Key == Key.D)<BR>
+                            m_D = false;<BR>
+                        if (state.Key == Key.Z)<BR>
+                            m_Z = false;<BR>
+                        if (state.Key == Key.X)<BR>
+                            m_X = false;<BR>
+                        if (state.Key == Key.Space)<BR>
+                            m_Space = false;<BR>
+                        if (state.Key == Key.LeftControl)<BR>
+                        {<BR>
+                            Cntrl_Is_Down = false;<BR>
+                            //if (Mouse_Is_In == false) m_LockInput = true;<BR>
+                        }<BR>
+                    }<BR>
+                }<BR>
+<BR>
+                float facteur = 0.1f;<BR>
+<BR>
+                if (m_W) Camera_Position += new Vector3(facteur, 0.0f, 0.0f);<BR>
+                if (m_S) Camera_Position += new Vector3(-facteur, 0.0f, 0.0f);<BR>
+                if (m_A) Camera_Position += new Vector3(0.0f, facteur, 0.0f);<BR>
+                if (m_D) Camera_Position += new Vector3(0.0f, -facteur, 0.0f);<BR>
+                if (m_Q) Camera_Position += new Vector3(0.0f, 0.0f, facteur);<BR>
+                if (m_E) Camera_Position += new Vector3(0.0f, 0.0f, -facteur);<BR>
+<BR>
+                mouse.Poll();<BR>
+<BR>
+<BR>
+                MouseState Mo = mouse.GetCurrentState();<BR>
+                <BR>
+                <BR>
+                Cam.Set_Frame(Mo.X, Mo.Y, Camera_Position, Mo.Z, 0, 0);<BR>
+<BR>
+<BR>
+<BR>
+                rotation += 0.001f;<BR>
+                    O.Render(Cam.Get_View_Matrix(), proj, Matrix.Identity * Matrix.RotationY(rotation) * Matrix.RotationX(2*rotation), context, new Vector4(0, 0, -100.0f, 0));<BR>
+<BR>
+                <BR>
+                // Present!<BR>
+                swapChain.Present(1, PresentFlags.None);<BR>
+                //});<BR>
+            })));<BR>
+            depthBuffer.Dispose();<BR>
+            depthView.Dispose();<BR>
+            renderView.Dispose();<BR>
+            backBuffer.Dispose();            <BR>
+        }       <BR>
+    }<BR>
+}<BR>
